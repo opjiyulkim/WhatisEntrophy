@@ -1,0 +1,552 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>정보 엔트로피로 근사하는 물리 엔트로피 — 2D 탄성 충돌 </title>
+<style>
+  :root{
+    --bg:#10141d; --panel:#171c28; --panel2:#1d2333; --line:rgba(255,255,255,.07);
+    --ink:#e8ebf2; --muted:#8b93a7; --amber:#f2a63c; --cyan:#55c8d8; --red:#e06666;
+    --radius:12px;
+    font-size:15px;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  body{
+    background:var(--bg); color:var(--ink);
+    font-family:"Pretendard Variable",Pretendard,-apple-system,"Apple SD Gothic Neo","Malgun Gothic","Segoe UI",sans-serif;
+    padding:20px; max-width:1240px; margin:0 auto;
+  }
+  .mono{font-family:ui-monospace,"SF Mono","JetBrains Mono",Consolas,monospace;}
+  header{display:flex; flex-wrap:wrap; align-items:baseline; gap:12px 20px; margin-bottom:16px;}
+  h1{font-size:1.25rem; font-weight:700; letter-spacing:-.01em;}
+  h1 .sub{color:var(--muted); font-weight:400; font-size:.85rem; margin-left:8px;}
+  .chips{display:flex; flex-wrap:wrap; gap:8px; margin-left:auto;}
+  .chip{
+    background:var(--panel); border:1px solid var(--line); border-radius:999px;
+    padding:4px 12px; font-size:.8rem; color:var(--muted);
+  }
+  .chip b{color:var(--ink); font-weight:600;}
+  .chip.a b{color:var(--cyan);} .chip.b b{color:var(--amber);}
+  .stage{display:grid; grid-template-columns:minmax(320px,560px) 1fr; gap:14px;}
+  @media (max-width:900px){ .stage{grid-template-columns:1fr;} }
+  .card{background:var(--panel); border:1px solid var(--line); border-radius:var(--radius); padding:12px;}
+  .card h2{font-size:.8rem; font-weight:600; color:var(--muted); letter-spacing:.04em; margin-bottom:8px;}
+  canvas{display:block; width:100%; border-radius:8px; background:#0b0e15;}
+  /* 정보 테이프 */
+  .tape-wrap{margin-top:14px;}
+  #tape{background:#0b0e15;}
+  .tape-text{
+    margin-top:8px; font-size:.78rem; color:var(--muted); word-break:break-all; line-height:1.7;
+  }
+  .tape-text b{color:var(--ink);}
+  /* 컨트롤 */
+  .controls{margin-top:14px; display:grid; grid-template-columns:repeat(auto-fit,minmax(210px,1fr)); gap:10px 18px;}
+  .ctl{display:flex; flex-direction:column; gap:5px;}
+  .ctl label{font-size:.78rem; color:var(--muted); display:flex; justify-content:space-between;}
+  .ctl label output{color:var(--ink); font-weight:600;}
+  .ctl .note{font-size:.68rem; color:#5d6579;}
+  input[type=range]{width:100%; accent-color:var(--amber); background:transparent;}
+  select,button{
+    background:var(--panel2); color:var(--ink); border:1px solid var(--line);
+    border-radius:8px; padding:7px 10px; font-size:.85rem; font-family:inherit;
+  }
+  select:focus,button:focus,input:focus-visible{outline:2px solid var(--amber); outline-offset:1px;}
+  .btnrow{display:flex; gap:8px; align-items:end;}
+  button{cursor:pointer;}
+  button.primary{background:var(--amber); color:#1a1408; border:none; font-weight:700;}
+  button:hover{filter:brightness(1.1);}
+  .checks{display:flex; gap:16px; align-items:end; padding-bottom:6px; flex-wrap:wrap;}
+  .checks label{font-size:.82rem; color:var(--muted); display:flex; gap:6px; align-items:center; cursor:pointer;}
+  footer{margin-top:16px; font-size:.78rem; color:var(--muted); line-height:1.8; border-top:1px solid var(--line); padding-top:12px;}
+  footer .k{color:var(--cyan);} footer .k2{color:var(--amber);}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>정보 엔트로피로 근사하는 물리 엔트로피<span class="sub">2D 탄성 충돌(+아래에 곡선이 의미하는 바도 적어놓앗습니당)</span></h1>
+  <div class="chips">
+    <span class="chip">t = <b id="stTime" class="mono">0.0 s</b></span>
+    <span class="chip a">섀넌 엔트로피(문자열 기준) = <b id="stHA" class="mono">–</b></span>
+    <span class="chip" style="color:#b48ce8">물리학적 엔트로피 = <b id="stHW" class="mono" style="color:#b48ce8">–</b></span>
+    <span class="chip">ΔE <b id="stE" class="mono">0.000%</b></span>
+  </div>
+</header>
+
+<div class="stage">
+  <div class="card">
+    <h2>입자계 (완전 탄성 충돌) (가림막이 존재하는 이유: 가림막이 없으면 엔트로피 변화 경향이 너무 가팔라서 좀 더 엔트로피 경향을 천천히 관찰하기 위함)</h2>
+    <canvas id="sim" width="1120" height="1120"></canvas>
+  </div>
+  <div class="card">
+    <h2>엔트로피 H(t) — <span style="color:var(--cyan)">방식 A: 섀넌 기호 빈도 (우축)</span> · <span style="color:#b48ce8">볼츠만 (1/N)log₂W (좌축)</span></h2>
+    <canvas id="chart" width="1240" height="1010"></canvas>
+  </div>
+</div>
+
+<div class="card tape-wrap">
+  <h2>정보 테이프 — 격자 상태를 변환한 문자열 (셀 = 기호, 밝을수록 입자 多)</h2>
+  <canvas id="tape" width="2400" height="40"></canvas>
+  <div class="tape-text mono">문자열 앞부분: <b id="tapeText"></b></div>
+</div>
+
+<div class="card" style="margin-top:14px;">
+  <h2>설정</h2>
+  <div class="controls">
+    <div class="ctl">
+      <label>입자 수 N <output id="oN">200</output></label>
+      <input type="range" id="inN" min="50" max="500" step="10" value="200">
+      <span class="note">리셋 시 적용</span>
+    </div>
+    <div class="ctl">
+      <label>초기 속력 <output id="oV">35 px/s</output></label>
+      <input type="range" id="inV" min="10" max="150" step="5" value="35">
+      <span class="note">리셋 시 적용 · 낮을수록 엔트로피가 천천히 증가</span>
+    </div>
+    <div class="ctl">
+      <label>입자 반지름 <output id="oR">4 px</output></label>
+      <input type="range" id="inR" min="2" max="8" step="1" value="4">
+      <span class="note">리셋 시 적용</span>
+    </div>
+    <div class="ctl">
+      <label>초기 배치</label>
+      <select id="inInit">
+        <option value="partition" selected>칸막이 — 왼쪽 + 작은 틈 (분출)</option>
+        <option value="corner">구석 밀집 (좌하단 1/4)</option>
+        <option value="half">왼쪽 절반 (칸막이 없음)</option>
+        <option value="center">중앙 밀집</option>
+        <option value="uniform">균일 (대조군)</option>
+      </select>
+      <span class="note">리셋 시 적용 · 칸막이 = 가장 점진적인 증가</span>
+    </div>
+    <div class="ctl">
+      <label>칸막이 틈 크기 <output id="oGap">10%</output></label>
+      <input type="range" id="inGap" min="4" max="40" step="2" value="10">
+      <span class="note">즉시 적용 · 작을수록 엔트로피가 천천히 증가</span>
+    </div>
+    <div class="ctl">
+      <label>격자 G×G <output id="oG">16×16</output></label>
+      <input type="range" id="inG" min="0" max="3" step="1" value="2">
+      <span class="note">4 / 8 / 16 / 32 · 즉시 적용 (그래프 초기화)</span>
+    </div>
+    <div class="ctl">
+      <label>배속 <output id="oS">1.0×</output></label>
+      <input type="range" id="inS" min="0.25" max="4" step="0.25" value="1">
+      <span class="note">즉시 적용</span>
+    </div>
+    <div class="ctl checks">
+      <label><input type="checkbox" id="ckGrid" checked> 격자 표시</label>
+      <label><input type="checkbox" id="ckHeat"> 히트맵</label>
+      <label><input type="checkbox" id="ckAvg" checked> 이동평균</label>
+    </div>
+    <div class="ctl btnrow">
+      <button class="primary" id="btnRun">시작</button>
+      <button id="btnReset">리셋</button>
+    </div>
+  </div>
+</div>
+
+<footer>
+  <b class="k">섀넌 엔트로피(문자열 기준)</b> — 각 격자가 나타내는 문자열에서 문자열 기호(ex: 0, 1, 2...)의 출현 확률 p(x)(첫 보고서에서 언급한 확률질량함수)로 문자열의 정보 엔트로피를 계산한 것.<br>
+  <b style="color:#b48ce8">볼츠만 (1/N)·log₂W</b> — 현재 점유수 배치를 만드는 미시상태 수를 팩토리얼을 이용한 경우의 수 공식으로 정확히 계산한 것. 원래는 자연로그를 이용하여 계산하지만, 같은 bit단위를 이용해 비교하기 위해 log2를 이용하도록 변형함.<br>
+  두 곡선의 차이는 다른 항목(문자열/배치 가능 가짓수)을 이용하는 <b>서로 다른 엔트로피 공식</b>을 통해 엔트로피를 계산했기 때문. 그렇지만 진행 경향은 비슷하다. ΔE가 0인 이유는 완전탄성충돌로 설정해서 이 시뮬레이션을 만들었기 때문입니당.
+</footer>
+
+<script>
+"use strict";
+/* ================= 상수 & 상태 ================= */
+const W = 560, H = 560;              // 시뮬레이션 논리 좌표 (px)
+const PHYS_DT = 1/120;               // 물리 서브스텝 시간
+const SAMPLE_DT = 0.1;               // 엔트로피 샘플 간격 (시뮬레이션 초)
+const G_LIST = [4, 8, 16, 32];
+const MAX_POINTS = 2400;             // 그래프 점 상한 (초과 시 데시메이션)
+// 로그팩토리얼 테이블: 볼츠만 W = N!/∏nᵢ! 정확 계산용
+const LOGFACT = new Float64Array(501);
+for(let i=2;i<=500;i++) LOGFACT[i] = LOGFACT[i-1] + Math.log(i);
+
+const state = {
+  running:false, t:0,
+  N:200, r:4, v0:35, init:"partition",
+  G:16, speed:1,
+  wall:true, gapFrac:0.10,            // 칸막이 & 틈 비율
+  px:null, py:null, vx:null, vy:null,
+  E0:1, sampleAcc:0,
+  series:[], sampleEvery:1, sampleCount:0,   // series: {t, ha, hb}
+  counts:null, str:"",
+};
+const WALL_T = 6;                     // 칸막이 두께 (px)
+
+/* ================= 초기화 ================= */
+function resetSim(){
+  state.N = +el.inN.value;
+  state.v0 = +el.inV.value;
+  state.r  = +el.inR.value;
+  state.init = el.inInit.value;
+  state.t = 0; state.sampleAcc = 0;
+  state.series = []; state.sampleEvery = 1; state.sampleCount = 0;
+
+  const N = state.N, r = state.r;
+  state.px = new Float64Array(N); state.py = new Float64Array(N);
+  state.vx = new Float64Array(N); state.vy = new Float64Array(N);
+
+  state.wall = (state.init === "partition");
+
+  // 초기 영역
+  let rx=0, ry=0, rw=W, rh=H;
+  if(state.init==="corner"){ rx=0; ry=H/2; rw=W/2; rh=H/2; }        // 좌하단 1/4
+  else if(state.init==="half"){ rx=0; ry=0; rw=W/2; rh=H; }
+  else if(state.init==="partition"){ rx=0; ry=H/2; rw=W/2 - WALL_T - 2*state.r; rh=H/2; } // 벽 왼쪽 하단 밀집
+  else if(state.init==="center"){ rw=W*0.4; rh=H*0.4; rx=(W-rw)/2; ry=(H-rh)/2; }
+
+  // 겹치지 않는 배치: 영역 내 서브격자 + 지터
+  let s = 2*r*1.15;
+  let cols = Math.floor((rw-2*r)/s), rows = Math.floor((rh-2*r)/s);
+  while(cols*rows < N && s > 2*r*1.02){
+    s *= 0.97;
+    cols = Math.floor((rw-2*r)/s); rows = Math.floor((rh-2*r)/s);
+  }
+  const slots = [];
+  for(let j=0;j<rows;j++) for(let i=0;i<cols;i++) slots.push([i,j]);
+  // 셔플
+  for(let i=slots.length-1;i>0;i--){ const k=(Math.random()*(i+1))|0; [slots[i],slots[k]]=[slots[k],slots[i]]; }
+  const jit = Math.max(0, s/2 - r) * 0.8;
+  for(let n=0;n<N;n++){
+    const [i,j] = slots[n % slots.length];
+    state.px[n] = rx + r + i*s + s/2 + (Math.random()*2-1)*jit;
+    state.py[n] = ry + r + j*s + s/2 + (Math.random()*2-1)*jit;
+    const th = Math.random()*Math.PI*2;
+    const v = state.v0 * (0.8 + 0.4*Math.random());   // 약간의 속력 분산
+    state.vx[n] = Math.cos(th)*v; state.vy[n] = Math.sin(th)*v;
+  }
+  state.E0 = kinetic();
+  measure(); pushSample(); drawAll();
+  updateChips();
+}
+
+function kinetic(){
+  let e=0;
+  for(let i=0;i<state.N;i++) e += state.vx[i]*state.vx[i] + state.vy[i]*state.vy[i];
+  return e || 1;
+}
+
+/* ================= 물리 엔진 ================= */
+function step(dt){
+  const {N, r, px, py, vx, vy} = state;
+  // 이동
+  for(let i=0;i<N;i++){ px[i]+=vx[i]*dt; py[i]+=vy[i]*dt; }
+  // 벽 반사
+  for(let i=0;i<N;i++){
+    if(px[i]<r){ px[i]=r; vx[i]=Math.abs(vx[i]); }
+    else if(px[i]>W-r){ px[i]=W-r; vx[i]=-Math.abs(vx[i]); }
+    if(py[i]<r){ py[i]=r; vy[i]=Math.abs(vy[i]); }
+    else if(py[i]>H-r){ py[i]=H-r; vy[i]=-Math.abs(vy[i]); }
+  }
+  // 칸막이 (가운데 벽 + 틈): 틈 밖 구간에서만 반사
+  if(state.wall){
+    const half = WALL_T/2 + r;
+    const gapH = H * state.gapFrac;
+    const g1 = (H - gapH)/2, g2 = (H + gapH)/2;   // 틈의 y 범위
+    for(let i=0;i<N;i++){
+      if(Math.abs(px[i]-W/2) < half && (py[i] < g1 + r || py[i] > g2 - r)){
+        if(vx[i] > 0 && px[i] <= W/2){ px[i] = W/2 - half; vx[i] = -vx[i]; }
+        else if(vx[i] < 0 && px[i] > W/2){ px[i] = W/2 + half; vx[i] = -vx[i]; }
+        else px[i] = px[i] <= W/2 ? W/2 - half : W/2 + half;  // 밀려 들어온 경우 밀어냄
+      }
+    }
+  }
+  // 공간 해시 (셀 크기 = 2r 이상)
+  const cell = Math.max(2*r, 8);
+  const gw = Math.ceil(W/cell), gh = Math.ceil(H/cell);
+  const buckets = new Array(gw*gh);
+  for(let i=0;i<N;i++){
+    const cx=Math.min(gw-1, Math.max(0, (px[i]/cell)|0));
+    const cy=Math.min(gh-1, Math.max(0, (py[i]/cell)|0));
+    const k=cy*gw+cx;
+    (buckets[k] || (buckets[k]=[])).push(i);
+  }
+  const d2min = 4*r*r;
+  for(let cy=0;cy<gh;cy++) for(let cx=0;cx<gw;cx++){
+    const A = buckets[cy*gw+cx]; if(!A) continue;
+    for(let oy=0;oy<=1;oy++) for(let ox=(oy===0?0:-1);ox<=1;ox++){
+      if(oy===0 && ox<0) continue;
+      const nx=cx+ox, ny=cy+oy;
+      if(nx<0||nx>=gw||ny>=gh) continue;
+      const B = buckets[ny*gw+nx]; if(!B) continue;
+      const same = (ox===0 && oy===0);
+      for(let a=0;a<A.length;a++){
+        const i=A[a];
+        for(let b=same?a+1:0;b<B.length;b++){
+          const j=B[b];
+          let dx=px[j]-px[i], dy=py[j]-py[i];
+          const d2 = dx*dx+dy*dy;
+          if(d2 >= d2min || d2===0) continue;
+          const d = Math.sqrt(d2);
+          const nxv=dx/d, nyv=dy/d;
+          // 위치 보정 (절반씩 밀어냄)
+          const ov = (2*r-d)/2;
+          px[i]-=nxv*ov; py[i]-=nyv*ov; px[j]+=nxv*ov; py[j]+=nyv*ov;
+          // 접근 중일 때만 법선 성분 교환 (동일 질량 완전 탄성)
+          const rvn = (vx[j]-vx[i])*nxv + (vy[j]-vy[i])*nyv;
+          if(rvn < 0){
+            vx[i]+=rvn*nxv; vy[i]+=rvn*nyv;
+            vx[j]-=rvn*nxv; vy[j]-=rvn*nyv;
+          }
+        }
+      }
+    }
+  }
+}
+
+/* ================= 엔트로피 측정 ================= */
+function measure(){
+  const G = state.G, N = state.N;
+  const counts = new Uint16Array(G*G);
+  const cw = W/G, ch = H/G;
+  for(let i=0;i<N;i++){
+    const cx = Math.min(G-1, (state.px[i]/cw)|0);
+    const cy = Math.min(G-1, (state.py[i]/ch)|0);
+    counts[cy*G+cx]++;
+  }
+  state.counts = counts;
+  // 문자열 (기호: 0~9, 9+ 클리핑)
+  let str = "";
+  const symFreq = new Float64Array(10);
+  for(let k=0;k<counts.length;k++){
+    const s = Math.min(counts[k], 9);
+    str += s; symFreq[s]++;
+  }
+  state.str = str;
+  // 방식 A: 기호 빈도 엔트로피
+  let ha = 0; const L = counts.length;
+  for(let s=0;s<10;s++){
+    if(symFreq[s]>0){ const p = symFreq[s]/L; ha -= p*Math.log2(p); }
+  }
+  // 볼츠만: (1/N)·log₂W,  W = N!/∏nᵢ!  (스털링 근사 없이 정확 계산)
+  let lnW = LOGFACT[N];
+  for(let k=0;k<L;k++) lnW -= LOGFACT[counts[k]];
+  const hw = lnW / (N * Math.LN2);
+  state.ha = ha; state.hw = hw;
+}
+
+function pushSample(){
+  state.sampleCount++;
+  if(state.sampleCount % state.sampleEvery !== 0) return;
+  state.series.push({t:state.t, ha:state.ha, hw:state.hw});
+  if(state.series.length > MAX_POINTS){
+    state.series = state.series.filter((_,i)=>i%2===0);
+    state.sampleEvery *= 2;
+  }
+}
+
+/* ================= 렌더링 ================= */
+const el = {};
+["inN","inV","inR","inInit","inG","inS","inGap","oN","oV","oR","oG","oS","oGap",
+ "ckGrid","ckHeat","ckAvg","btnRun","btnReset",
+ "stTime","stHA","stHW","stE","tapeText"].forEach(id=>el[id]=document.getElementById(id));
+const simC = document.getElementById("sim"), simX = simC.getContext("2d");
+const chC  = document.getElementById("chart"), chX = chC.getContext("2d");
+const tpC  = document.getElementById("tape"), tpX = tpC.getContext("2d");
+const SC = simC.width / W;   // 시뮬 캔버스 스케일
+
+function drawSim(){
+  simX.clearRect(0,0,simC.width,simC.height);
+  const G = state.G, cw = simC.width/G, ch = simC.height/G;
+  // 히트맵
+  if(el.ckHeat.checked && state.counts){
+    let mx = 1;
+    for(let k=0;k<state.counts.length;k++) if(state.counts[k]>mx) mx=state.counts[k];
+    for(let cy=0;cy<G;cy++) for(let cx=0;cx<G;cx++){
+      const c = state.counts[cy*G+cx];
+      if(!c) continue;
+      simX.fillStyle = `rgba(242,166,60,${0.06 + 0.30*(c/mx)})`;
+      simX.fillRect(cx*cw, cy*ch, cw, ch);
+    }
+  }
+  // 격자
+  if(el.ckGrid.checked){
+    simX.strokeStyle = "rgba(255,255,255,0.06)"; simX.lineWidth = 1;
+    simX.beginPath();
+    for(let i=1;i<G;i++){
+      simX.moveTo(i*cw,0); simX.lineTo(i*cw,simC.height);
+      simX.moveTo(0,i*ch); simX.lineTo(simC.width,i*ch);
+    }
+    simX.stroke();
+  }
+  // 칸막이
+  if(state.wall){
+    const gapH = H * state.gapFrac;
+    const g1 = (H - gapH)/2, g2 = (H + gapH)/2;
+    simX.fillStyle = "rgba(139,147,167,0.85)";
+    simX.fillRect((W/2 - WALL_T/2)*SC, 0, WALL_T*SC, g1*SC);
+    simX.fillRect((W/2 - WALL_T/2)*SC, g2*SC, WALL_T*SC, (H-g2)*SC);
+  }
+  // 입자
+  simX.fillStyle = "#f2a63c";
+  const rr = state.r*SC;
+  for(let i=0;i<state.N;i++){
+    simX.beginPath();
+    simX.arc(state.px[i]*SC, state.py[i]*SC, rr, 0, 6.2832);
+    simX.fill();
+  }
+}
+
+function movAvg(arr, key, win){
+  const out = new Float64Array(arr.length);
+  let sum=0;
+  for(let i=0;i<arr.length;i++){
+    sum += arr[i][key];
+    if(i>=win) sum -= arr[i-win][key];
+    out[i] = sum / Math.min(i+1, win);
+  }
+  return out;
+}
+
+function drawChart(){
+  const w=chC.width, h=chC.height;
+  chX.clearRect(0,0,w,h);
+  const padL=64, padR=64, padT=14, padB=40;
+  const pw=w-padL-padR, ph=h-padT-padB;
+  const S = state.series;
+  const yMaxW = Math.max(Math.log2(state.G*state.G), 1) * 1.05;   // 좌축 (볼츠만)
+  const yMaxA = Math.log2(10) * 1.05;                              // 우축 (A)
+  const tMax = Math.max(S.length? S[S.length-1].t : 1, 5);
+  const X  = t => padL + pw * t/tMax;
+  const YW = v => padT + ph * (1 - v/yMaxW);
+  const YA = v => padT + ph * (1 - v/yMaxA);
+
+  // 프레임 & 가로 눈금선
+  chX.strokeStyle="rgba(255,255,255,0.12)"; chX.lineWidth=1;
+  chX.strokeRect(padL,padT,pw,ph);
+  chX.font="20px ui-monospace,monospace";
+  for(let i=0;i<=4;i++){
+    const fy = padT + ph*(1 - i/4);
+    // 좌축 (보라: 볼츠만)
+    chX.fillStyle="#b48ce8"; chX.textAlign="right";
+    chX.fillText((yMaxW*i/4).toFixed(1), padL-8, fy+7);
+    // 우축 (청록: 방식 A)
+    chX.fillStyle="#55c8d8"; chX.textAlign="left";
+    chX.fillText((yMaxA*i/4).toFixed(1), padL+pw+8, fy+7);
+    chX.strokeStyle="rgba(255,255,255,0.05)";
+    chX.beginPath(); chX.moveTo(padL,fy); chX.lineTo(padL+pw,fy); chX.stroke();
+  }
+  chX.fillStyle="#8b93a7"; chX.textAlign="center";
+  for(let i=0;i<=5;i++){
+    const t = tMax*i/5;
+    chX.fillText(t.toFixed(0)+"s", X(t), h-14);
+  }
+  // 이론적 최대 (좌축: log₂(G²))
+  const wMax = Math.log2(state.G*state.G);
+  chX.strokeStyle="rgba(180,140,232,0.45)"; chX.setLineDash([8,7]);
+  chX.beginPath(); chX.moveTo(padL,YW(wMax)); chX.lineTo(padL+pw,YW(wMax)); chX.stroke();
+  chX.setLineDash([]);
+
+  if(S.length<2) return;
+  const useAvg = el.ckAvg.checked && S.length > 30;
+  const win = Math.max(5, (S.length/40)|0);
+
+  function line(key, avg, color, alpha, Yfn){
+    chX.strokeStyle=color; chX.globalAlpha=alpha; chX.lineWidth=3;
+    chX.beginPath();
+    for(let i=0;i<S.length;i++){
+      const v = avg ? avg[i] : S[i][key];
+      const x=X(S[i].t), y=Yfn(v);
+      i? chX.lineTo(x,y) : chX.moveTo(x,y);
+    }
+    chX.stroke(); chX.globalAlpha=1;
+  }
+  // 원자료(연하게) + 이동평균(진하게)
+  line("ha", null, "#55c8d8", useAvg?0.25:1, YA);
+  line("hw", null, "#b48ce8", useAvg?0.25:1, YW);
+  if(useAvg){
+    line("ha", movAvg(S,"ha",win), "#55c8d8", 1, YA);
+    line("hw", movAvg(S,"hw",win), "#b48ce8", 1, YW);
+  }
+}
+
+function drawTape(){
+  const str = state.str; if(!str) return;
+  const w = tpC.width, L = str.length;
+  const cellW = Math.max(1, Math.floor(w/L));
+  const rows = Math.ceil(L*cellW / w);
+  const rowH = 36;
+  tpC.height = rows*rowH + 4;
+  tpX.clearRect(0,0,w,tpC.height);
+  const perRow = Math.floor(w/cellW);
+  for(let k=0;k<L;k++){
+    const d = +str[k];
+    const row = (k/perRow)|0, col = k%perRow;
+    const b = d===0 ? 0.05 : 0.18 + 0.82*(d/9);
+    tpX.fillStyle = d===0 ? "rgba(255,255,255,0.04)" : `rgba(242,166,60,${b})`;
+    tpX.fillRect(col*cellW, row*rowH+2, Math.max(cellW-1,1), rowH-4);
+  }
+  el.tapeText.textContent = str.slice(0,96) + (L>96?"…":"") + `  (길이 ${L})`;
+}
+
+function updateChips(){
+  el.stTime.textContent = state.t.toFixed(1)+" s";
+  el.stHA.textContent = state.ha!==undefined ? state.ha.toFixed(3)+" bit" : "–";
+  el.stHW.textContent = state.hw!==undefined ? state.hw.toFixed(3)+" bit" : "–";
+  const err = Math.abs(kinetic()-state.E0)/state.E0*100;
+  el.stE.textContent = err.toFixed(3)+"%";
+}
+
+function drawAll(){ drawSim(); drawChart(); drawTape(); }
+
+/* ================= 루프 ================= */
+let lastFrame = 0;
+function loop(ts){
+  requestAnimationFrame(loop);
+  if(!state.running) { lastFrame = ts; return; }
+  let real = Math.min((ts-lastFrame)/1000, 0.05);   // 탭 전환 시 폭주 방지
+  lastFrame = ts;
+  let simTime = real * state.speed;
+  while(simTime > 0){
+    const dt = Math.min(PHYS_DT, simTime);
+    step(dt);
+    state.t += dt; state.sampleAcc += dt;
+    if(state.sampleAcc >= SAMPLE_DT){
+      state.sampleAcc -= SAMPLE_DT;
+      measure(); pushSample();
+    }
+    simTime -= dt;
+  }
+  measure();
+  drawAll(); updateChips();
+}
+
+/* ================= UI 바인딩 ================= */
+function syncOutputs(){
+  el.oN.textContent = el.inN.value;
+  el.oV.textContent = el.inV.value+" px/s";
+  el.oR.textContent = el.inR.value+" px";
+  el.oG.textContent = G_LIST[+el.inG.value]+"×"+G_LIST[+el.inG.value];
+  el.oS.textContent = (+el.inS.value).toFixed(2).replace(/\.?0+$/,"")+"×";
+  el.oGap.textContent = el.inGap.value+"%";
+}
+el.inGap.addEventListener("input",()=>{ state.gapFrac = el.inGap.value/100; syncOutputs(); drawAll(); });
+["inN","inV","inR"].forEach(id=>el[id].addEventListener("input",syncOutputs));
+el.inS.addEventListener("input",()=>{ state.speed = +el.inS.value; syncOutputs(); });
+el.inG.addEventListener("input",()=>{
+  state.G = G_LIST[+el.inG.value]; syncOutputs();
+  state.series=[]; state.sampleEvery=1; state.sampleCount=0;  // 스케일이 바뀌므로 그래프 초기화
+  measure(); pushSample(); drawAll(); updateChips();
+});
+el.ckGrid.addEventListener("change",drawAll);
+el.ckHeat.addEventListener("change",drawAll);
+el.ckAvg.addEventListener("change",drawAll);
+el.btnRun.addEventListener("click",()=>{
+  state.running = !state.running;
+  el.btnRun.textContent = state.running ? "일시정지" : "시작";
+});
+el.btnReset.addEventListener("click",()=>{
+  state.running = false; el.btnRun.textContent = "시작";
+  resetSim();
+});
+
+syncOutputs();
+resetSim();
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
